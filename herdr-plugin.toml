@@ -1,0 +1,22 @@
+# herdr-skill-timeline: timeline of Claude skills per pane in the current
+# workspace. The TUI is started by the user in any pane (e.g. from a
+# workspace-manager layout); this manifest only builds the binary and wires
+# the event hook that remembers each pane's Claude sessions across /clear.
+
+id = "herdr-skill-timeline"
+name = "Skill Timeline"
+version = "0.1.0"
+description = "Timeline of Claude skills run by the sessions in the current workspace."
+min_herdr_version = "0.9.0"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["./target/release/herdr-skill-timeline", "record"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["./target/release/herdr-skill-timeline", "record"]
