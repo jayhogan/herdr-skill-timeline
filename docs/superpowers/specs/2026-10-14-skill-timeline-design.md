@@ -56,11 +56,13 @@ scripts/install.sh       # symlink target/release/herdr-skill-timeline into ~/.l
 src/
   main.rs                # mode dispatch: TUI (default) | record
   herdr.rs               # snapshot fetch + parse
-  registry.rs            # sessions.json read/merge/prune/write
+  registry.rs            # sessions.json read/modify/prune/write
   transcript.rs          # locate + incrementally read transcript files
-  parse.rs               # transcript line -> Option<SkillEvent>
+  parse.rs               # transcript line -> skill events
   ago.rs                 # relative time labels
-  ui.rs                  # ratatui rendering + input
+  timeline.rs            # one refresh pass -> View
+  record.rs              # event-hook mode
+  ui.rs                  # ratatui rendering
 tests/fixtures/          # sanitized transcript lines, snapshot JSON
 ```
 
@@ -103,10 +105,12 @@ command = ["./target/release/herdr-skill-timeline", "record"]
 | Unit | Responsibility | Depends on |
 |---|---|---|
 | `herdr.rs` | Run `$HERDR_BIN_PATH api snapshot` (fallback `herdr`), parse into `Snapshot { workspaces, panes, agents }`. Helpers: workspace of a pane; Claude agents in a workspace with `pane_id`, `session_id`, `terminal_title`. | herdr CLI |
-| `registry.rs` | Persist which sessions each pane has had. `record(workspace_id, pane_id, session_id, now)`; `prune(live_pane_ids)`; `sessions_for(workspace_id)`. | filesystem |
+| `registry.rs` | Persist which sessions each pane has had. `record(pane_id, session_id, now)`; `prune(live_pane_ids)`; `sessions_for(pane_id)`. | filesystem |
 | `transcript.rs` | Resolve `<session_id>.jsonl` under `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/` (cache resolved path). Keep a byte offset per file; return only newly completed lines each pass. | filesystem |
 | `parse.rs` | Pure: feed lines in order, emit `SkillEvent { name, timestamp, via: Tool \| Slash }`. Holds pending-slash state between lines. | none |
 | `ago.rs` | Pure: `label(ts, now) -> String`. | none |
+| `timeline.rs` | One refresh pass: record + prune sessions, read feeds, build the `View` (groups, rows, ordering). Keeps the last good view for the unreachable state. | herdr, registry, transcript, parse |
+| `record.rs` | The `record` event-hook mode. | herdr, registry |
 | `ui.rs` | Pure-ish rendering of a `View` model to a ratatui `Frame`; key handling (scroll, quit). | ratatui, crossterm |
 | `main.rs` | Mode dispatch and the 2-second loop. | all |
 
@@ -122,16 +126,17 @@ independent of herdr's per-plugin state dir.
 ```json
 {
   "version": 1,
-  "workspaces": {
-    "w4K": {
-      "w4K:p2": [
-        { "session_id": "aa963ac4-…", "first_seen": "2026-10-14T21:22:59Z" },
-        { "session_id": "0b1c…",      "first_seen": "2026-10-14T23:05:12Z" }
-      ]
-    }
+  "panes": {
+    "w4K:p2": [
+      { "session_id": "aa963ac4-…", "first_seen": "2026-10-14T21:22:59Z" },
+      { "session_id": "0b1c…",      "first_seen": "2026-10-14T23:05:12Z" }
+    ]
   }
 }
 ```
+
+Keyed by pane id only; the workspace a pane belongs to is always taken from
+the live snapshot, so a pane moved between workspaces keeps its history.
 
 Session lists are append-only (deduplicated by `session_id`), ordered by
 `first_seen`.
@@ -157,8 +162,11 @@ Startup:
 Loop, every 2 seconds and on terminal resize:
 1. Fetch the snapshot. Determine the current workspace from the own pane's
    `workspace_id` (re-evaluated each pass, so a moved pane follows its workspace).
-2. For each Claude agent in that workspace with a session id, `registry.record`.
-   Then `registry.prune` with the live pane ids from the snapshot.
+2. For each Claude agent (any workspace) with a session id, `registry.record`.
+   Then `registry.prune` with the live pane ids from the snapshot. A snapshot
+   that fails, or that does not contain the TUI's own pane (e.g. herdr
+   mid-restart with an empty pane list), skips this step entirely, so history
+   is never pruned on bad data.
 3. For every session of every live pane in the workspace, read new transcript
    lines and feed them to that session's parser; append emitted events.
 4. Build the `View` and redraw (redraw also refreshes the "ago" labels).
@@ -171,7 +179,8 @@ Keys: `j`/`k`/↓/↑ scroll, `q` / Ctrl-C quit.
 
 1. Read `data.pane_id` from `HERDR_PLUGIN_EVENT_JSON`. Missing → exit 0.
 2. Fetch the snapshot; find that pane's agent. Not Claude or no session id → exit 0.
-3. `registry.record(workspace_id, pane_id, session_id, now)`. Exit 0.
+3. `registry.record(pane_id, session_id, now)`. Exit 0. Events for non-Claude
+   panes return before touching the state file.
 
 `record` always exits 0 and writes nothing to stdout, so it never disturbs herdr.
 Errors go to stderr as one line.
@@ -184,7 +193,10 @@ entry with `isSidechain: true`.
 1. **Agent-invoked:** an entry with `type == "assistant"` whose
    `message.content[]` contains a block with `type == "tool_use"` and
    `name == "Skill"` emits `SkillEvent { name: input.skill, timestamp, via: Tool }`.
-   Multiple such blocks in one entry emit multiple events.
+   Multiple such blocks in one entry emit multiple events. A `tool_use` `id`
+   already emitted is skipped (resumed/forked sessions can repeat history).
+   Only `type == "assistant"` counts: transcripts also contain
+   `api-request-blob` entries that repeat earlier `tool_use` blocks.
 2. **User-invoked:** an entry with `type == "user"` whose `message.content`
    (string, or text blocks) contains `<command-name>/X</command-name>` sets
    `pending = Some((X, timestamp))`, replacing any earlier pending value.
@@ -246,7 +258,7 @@ Future timestamps (clock skew) render as `just now`.
 
 | Situation | Behaviour |
 |---|---|
-| Concurrent writers (TUI + hook) | Read-merge-write while holding an exclusive advisory lock on `sessions.json.lock`; write to a temp file and rename. Lists only grow, so the merge cannot lose data. |
+| Concurrent writers (TUI + hook) | Read-modify-write while holding an exclusive advisory lock on `sessions.json.lock` (std `File::lock`); write to a temp file and rename. Each writer applies its change to the latest on-disk data, so no record is lost. |
 | `sessions.json` missing | Treat as empty. |
 | `sessions.json` corrupt | Rename to `sessions.json.bak`, start empty, log one stderr line. |
 | Snapshot command fails | TUI keeps the last good view and shows the warning header; `record` exits 0. |
@@ -278,5 +290,7 @@ Future timestamps (clock skew) render as `just now`.
 
 ## Dependencies
 
-`ratatui`, `crossterm`, `serde`, `serde_json`, `chrono`, `fs2` (advisory file
-lock), `tempfile` (dev). Matches the versions used by herdr-notes where shared.
+`ratatui` 0.30, `crossterm` 0.29, `serde`, `serde_json`, `chrono`
+(no default features; `std`, `clock`, `serde`), `tempfile` (dev). File locking
+uses std `File::lock` (Rust ≥ 1.89), so no lock crate. Matches the versions
+used by herdr-notes where shared.
