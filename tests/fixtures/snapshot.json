@@ -1,0 +1,46 @@
+{
+  "id": "cli:api:snapshot",
+  "type": "snapshot",
+  "result": {
+    "snapshot": {
+      "protocol": 22,
+      "version": "0.9.3",
+      "focused_pane_id": "w1:p1",
+      "workspaces": [
+        { "workspace_id": "w1", "label": "core-8920-store-blockers", "number": 1 },
+        { "workspace_id": "w2", "label": "docket", "number": 2 }
+      ],
+      "panes": [
+        { "pane_id": "w1:p1", "workspace_id": "w1", "tab_id": "w1:t1", "agent_status": "working" },
+        { "pane_id": "w1:p2", "workspace_id": "w1", "tab_id": "w1:t1", "agent_status": "idle" },
+        { "pane_id": "w1:p3", "workspace_id": "w1", "tab_id": "w1:t1" },
+        { "pane_id": "w1:p4", "workspace_id": "w1", "tab_id": "w1:t1", "agent_status": "idle" },
+        { "pane_id": "w1:p5", "workspace_id": "w1", "tab_id": "w1:t1", "agent_status": "idle" },
+        { "pane_id": "w2:p1", "workspace_id": "w2", "tab_id": "w2:t1", "agent_status": "idle" }
+      ],
+      "agents": [
+        {
+          "pane_id": "w1:p1", "workspace_id": "w1", "agent": "claude", "agent_status": "working",
+          "terminal_title_stripped": "store blockers",
+          "agent_session": { "agent": "claude", "kind": "id", "source": "herdr:claude", "value": "sess-1" }
+        },
+        {
+          "pane_id": "w1:p2", "workspace_id": "w1", "agent": "claude", "agent_status": "idle",
+          "terminal_title_stripped": ""
+        },
+        {
+          "pane_id": "w1:p4", "workspace_id": "w1", "agent": "codex", "agent_status": "idle",
+          "agent_session": { "agent": "codex", "kind": "id", "source": "herdr:codex", "value": "codex-1" }
+        },
+        {
+          "pane_id": "w1:p5", "workspace_id": "w1", "agent": "claude", "agent_status": "idle",
+          "agent_session": { "agent": "claude", "kind": "path", "source": "herdr:claude", "value": "/tmp/x.jsonl" }
+        },
+        {
+          "pane_id": "w2:p1", "workspace_id": "w2", "agent": "claude", "agent_status": "idle",
+          "agent_session": { "agent": "claude", "kind": "id", "source": "herdr:claude", "value": "sess-9" }
+        }
+      ]
+    }
+  }
+}
