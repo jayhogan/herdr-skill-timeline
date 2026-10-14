@@ -1,0 +1,19 @@
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:20:00.000Z","message":{"role":"user","content":"Help me plan a plugin"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-14T21:23:01.455Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_A","name":"Skill","input":{"skill":"superpowers:brainstorming"}}]}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:23:01.481Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/brainstorming\n\n# Brainstorming"}]}}
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:23:01.500Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"Launching skill: superpowers:brainstorming"}]}}
+{"type":"api-request-blob","message":{"content":[{"type":"tool_use","id":"toolu_OLD","name":"Skill","input":{"skill":"must-not-count"}}]}}
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:30:00.000Z","message":{"role":"user","content":"<command-message>simplify</command-message>\n<command-name>/simplify</command-name>"}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:30:00.050Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/simplify\n\nAudit the diff"}]}}
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:35:00.000Z","message":{"role":"user","content":"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"}}
+{"type":"system","timestamp":"2026-10-14T21:35:00.010Z"}
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:36:00.000Z","message":{"role":"user","content":"<command-name>/model</command-name>"}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:36:00.010Z","message":{"role":"user","content":[{"type":"text","text":"Hook output: model set"}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-14T21:36:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Model changed."}]}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:36:06.000Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/stray"}]}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-14T21:37:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_SIDE","name":"Skill","input":{"skill":"subagent-only"}}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-14T21:38
+{"type":"user","isSidechain":false,"timestamp":"2026-10-14T21:40:00.000Z","message":{"role":"user","content":"<command-message>writing-plans</command-message>\n<command-name>/writing-plans</command-name>"}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:40:00.010Z","message":{"role":"user","content":[{"type":"text","text":"SessionStart hook additional context"}]}}
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-14T21:40:00.020Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/writing-plans"}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-14T21:50:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Starting with tests."},{"type":"tool_use","id":"toolu_B","name":"Skill","input":{"skill":"superpowers:test-driven-development"}},{"type":"tool_use","id":"toolu_C","name":"Skill","input":{"skill":"simplify"}},{"type":"tool_use","id":"toolu_D","name":"Bash","input":{"command":"ls"}}]}}
