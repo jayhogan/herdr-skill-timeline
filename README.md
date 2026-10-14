@@ -6,7 +6,7 @@ first, with "10 min ago" labels. History for a pane survives `/clear`.
 
 ```
  Skill timeline · core-8920-store-blockers            ⟳ 2s
- ─ claude · p2 "store blockers" ───────────────────────────
+ ─ claude · store blockers ────────────────────────────────
    simplify                               3 min ago
    test-driven-development               18 min ago
    ┄┄ new session ┄┄

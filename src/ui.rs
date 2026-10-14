@@ -44,12 +44,10 @@ fn header(view: &View, width: usize) -> Line<'static> {
 }
 
 fn heading(group: &Group, width: usize) -> String {
-    let short_id = group.pane_id.rsplit(':').next().unwrap_or(&group.pane_id);
-    let mut text = format!("─ claude · {short_id}");
-    if let Some(title) = &group.title {
-        text.push_str(&format!(" \"{title}\""));
-    }
-    text.push(' ');
+    let text = match &group.title {
+        Some(title) => format!("─ claude · {title} "),
+        None => "─ claude ".to_string(),
+    };
     let text = fit(&text, width);
     let fill = width.saturating_sub(text.chars().count());
     format!("{text}{}", "─".repeat(fill))
@@ -175,12 +173,12 @@ mod tests {
             text(&buf),
             vec![
                 " Skill timeline · core-8920             ⟳ 2s",
-                "─ claude · p2 \"store blockers\" ─────────────",
+                "─ claude · store blockers ──────────────────",
                 "   simplify                        3 min ago",
                 "   test-driven-development        18 min ago",
                 "   ┄┄ new session ┄┄                        ",
                 "   superpowers:brainstorming        2 hr ago",
-                "─ claude · p4 ──────────────────────────────",
+                "─ claude ───────────────────────────────────",
                 "   (no skills yet)                          ",
                 "                                            ",
             ]

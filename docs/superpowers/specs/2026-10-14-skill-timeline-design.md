@@ -218,13 +218,13 @@ Incomplete trailing line: `transcript.rs` only hands over lines terminated by
 
 ```
  Skill timeline · core-8920-store-blockers            ⟳ 2s
- ─ claude · p2 "store blockers" ───────────────────────────
+ ─ claude · store blockers ────────────────────────────────
    simplify                               3 min ago
    test-driven-development               18 min ago
    ┄┄ new session ┄┄
    writing-plans                          1 hr ago
    superpowers:brainstorming              2 hr ago
- ─ claude · p4 ────────────────────────────────────────────
+ ─ claude ─────────────────────────────────────────────────
    (no skills yet)
 ```
 
@@ -232,8 +232,8 @@ Incomplete trailing line: `transcript.rs` only hands over lines terminated by
   in place of `⟳ 2s` while snapshots are failing.
 - One group per live Claude pane in the workspace. Groups ordered by their
   most recent event, newest first; panes with no events last, by pane id.
-- Group heading: `claude · <short pane id> "<terminal_title>"` (title omitted
-  if empty).
+- Group heading: `claude · <terminal_title>`, or just `claude` when the
+  title is empty. The pane id is not shown (herdr does not display it).
 - Within a group, events newest first across all of the pane's sessions; a
   `┄┄ new session ┄┄` divider between events of different sessions.
 - The newest event in each group is bold.
