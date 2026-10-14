@@ -47,20 +47,39 @@ pub struct View {
     pub groups: Vec<Group>,
 }
 
-/// Rows for one pane, newest first. `sessions` is oldest session first; a
-/// `NewSession` divider separates sessions that have events.
+/// Rows for one pane: all sessions' events merged newest first, with a
+/// `NewSession` divider wherever consecutive rows come from different
+/// sessions. `sessions` is in registry order (first seen first). An event
+/// already present in an earlier session (same name and timestamp) is a copy
+/// made by a continued/forked session and is dropped.
 pub fn group_rows(sessions: &[Vec<SkillEvent>]) -> Vec<Row> {
+    let mut owner: HashMap<(&str, DateTime<Utc>), usize> = HashMap::new();
+    let mut merged: Vec<(usize, &SkillEvent)> = vec![];
+    for (session, events) in sessions.iter().enumerate() {
+        for event in events {
+            let first = *owner
+                .entry((&event.name, event.timestamp))
+                .or_insert(session);
+            if first == session {
+                merged.push((session, event));
+            }
+        }
+    }
+    // Stable sort, then reverse: newest first, and same-timestamp events
+    // keep "later in the transcript is newer".
+    merged.sort_by_key(|(_, e)| e.timestamp);
+
     let mut rows = vec![];
-    for events in sessions.iter().rev().filter(|e| !e.is_empty()) {
-        if !rows.is_empty() {
+    let mut previous = None;
+    for (session, event) in merged.into_iter().rev() {
+        if previous.is_some_and(|p| p != session) {
             rows.push(Row::NewSession);
         }
-        let mut sorted = events.clone();
-        sorted.sort_by_key(|e| e.timestamp);
-        rows.extend(sorted.into_iter().rev().map(|e| Row::Skill {
-            name: e.name,
-            at: e.timestamp,
-        }));
+        previous = Some(session);
+        rows.push(Row::Skill {
+            name: event.name.clone(),
+            at: event.timestamp,
+        });
     }
     rows
 }
@@ -253,6 +272,71 @@ mod tests {
             ]
         );
         assert!(group_rows(&[vec![], vec![]]).is_empty());
+    }
+
+    #[test]
+    fn continued_session_does_not_repeat_copied_history() {
+        // A continued/forked session's transcript starts with a copy of the
+        // earlier session's history: same skills, same timestamps.
+        let sessions = vec![
+            vec![
+                ev("brainstorming", "2026-10-14T10:00:00Z"),
+                ev("writing-plans", "2026-10-14T11:00:00Z"),
+            ],
+            vec![
+                ev("brainstorming", "2026-10-14T10:00:00Z"),
+                ev("writing-plans", "2026-10-14T11:00:00Z"),
+                ev("tdd", "2026-10-14T12:00:00Z"),
+            ],
+        ];
+        assert_eq!(
+            group_rows(&sessions),
+            vec![
+                skill("tdd", "2026-10-14T12:00:00Z"),
+                Row::NewSession,
+                skill("writing-plans", "2026-10-14T11:00:00Z"),
+                skill("brainstorming", "2026-10-14T10:00:00Z"),
+            ]
+        );
+    }
+
+    #[test]
+    fn resumed_older_session_with_newest_skill_comes_first() {
+        // A ran brainstorming, /clear started B (writing-plans), then
+        // /resume went back to A, which ran tdd.
+        let sessions = vec![
+            vec![
+                ev("brainstorming", "2026-10-14T10:00:00Z"),
+                ev("tdd", "2026-10-14T12:00:00Z"),
+            ],
+            vec![ev("writing-plans", "2026-10-14T11:00:00Z")],
+        ];
+        let rows = group_rows(&sessions);
+        assert_eq!(
+            rows,
+            vec![
+                skill("tdd", "2026-10-14T12:00:00Z"),
+                Row::NewSession,
+                skill("writing-plans", "2026-10-14T11:00:00Z"),
+                Row::NewSession,
+                skill("brainstorming", "2026-10-14T10:00:00Z"),
+            ]
+        );
+        let group = Group {
+            pane_id: "p".into(),
+            title: None,
+            rows,
+        };
+        assert_eq!(group.latest(), Some(t("2026-10-14T12:00:00Z")));
+    }
+
+    #[test]
+    fn same_skill_twice_in_one_session_is_kept() {
+        let sessions = vec![vec![
+            ev("simplify", "2026-10-14T10:00:00Z"),
+            ev("simplify", "2026-10-14T10:00:00Z"),
+        ]];
+        assert_eq!(group_rows(&sessions).len(), 2);
     }
 
     #[test]
