@@ -6,6 +6,8 @@
 //!   `<command-name>/name</command-name>`, confirmed by a later `isMeta` user
 //!   entry starting with "Base directory for this skill:". Built-in commands
 //!   (`/clear`, `/model`, ...) never get that confirmation.
+//! - The user types a plugin command that runs locally (`/plannotator-review`):
+//!   a `system` entry whose `commandRun` names the plugin.
 
 use std::collections::HashSet;
 
@@ -76,6 +78,24 @@ impl Parser {
                 }
                 self.pending = command_name(&text).map(|name| (name, timestamp));
                 vec![]
+            }
+            // Plugin commands run locally: the result entry's `commandRun`
+            // names the plugin. Built-ins like `/rename` have no plugin.
+            Some("system") => {
+                let Some(run) = entry.get("commandRun") else {
+                    return vec![];
+                };
+                match (
+                    run.get("plugin").and_then(Value::as_str),
+                    run.get("command").and_then(Value::as_str),
+                ) {
+                    (Some(_), Some(name)) if !name.is_empty() => vec![SkillEvent {
+                        name: name.to_string(),
+                        timestamp,
+                        via: Via::Slash,
+                    }],
+                    _ => vec![],
+                }
             }
             _ => vec![],
         }
@@ -171,6 +191,22 @@ mod tests {
         let mut p = Parser::default();
         assert_eq!(p.feed(line).len(), 1);
         assert_eq!(p.feed(line).len(), 0);
+    }
+
+    #[test]
+    fn plugin_local_command_is_a_skill() {
+        // Shapes copied from a real transcript: `/plannotator-review` runs
+        // as a plugin local command, with no `Skill` call or skill meta entry.
+        let text = r#"{"type":"system","subtype":"local_command","content":"<command-name>/plannotator-review</command-name>","timestamp":"2026-10-16T12:32:26.511Z","isMeta":false}
+{"type":"system","subtype":"local_command","content":"<local-command-stdout>plannotator: Opened local changes</local-command-stdout>","timestamp":"2026-10-16T12:32:26.511Z","isMeta":false,"commandRun":{"command":"plannotator-review","args":"","plugin":"plannotator"}}
+{"type":"system","subtype":"local_command","content":"<command-name>/rename</command-name>","timestamp":"2026-10-16T12:33:00.000Z","isMeta":false}
+{"type":"system","subtype":"local_command","content":"<local-command-stdout>Session renamed to: main</local-command-stdout>","timestamp":"2026-10-16T12:33:00.000Z","isMeta":false,"commandRun":{"command":"rename","args":"main"}}"#;
+        let events = parse_all(text);
+        assert_eq!(names(&events), vec![("plannotator-review", &Via::Slash)]);
+        assert_eq!(
+            events[0].timestamp.to_rfc3339(),
+            "2026-10-16T12:32:26.511+00:00"
+        );
     }
 
     #[test]
