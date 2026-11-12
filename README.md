@@ -64,4 +64,8 @@ Keys: `j`/`k` or arrows scroll, `q` quits.
 ```sh
 cargo test
 cargo clippy --all-targets
+cargo fmt --check
 ```
+
+CI runs all three on every pull request, with warnings counted as errors,
+and `main` requires it to pass before merging.
