@@ -54,3 +54,5 @@ mod tests {
         assert_eq!(at(-300), "just now");
     }
 }
+
+fn   ci_probe() { let unused = 1; }
