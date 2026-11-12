@@ -173,6 +173,9 @@ impl Parser {
                 continue;
             };
             let output = text_of(block.get("content"));
+            if action == PrAction::Merged && merge_failed(&output) {
+                continue;
+            }
             let number = match action {
                 PrAction::Created => pull_number(&output),
                 PrAction::Merged => from_command.or_else(|| merged_number(&output)),
@@ -257,6 +260,24 @@ fn pull_number(text: &str) -> Option<u64> {
 fn merged_number(text: &str) -> Option<u64> {
     let rest = &text[text.find("pull request")?..];
     leading_number(&rest[rest.find('#')? + 1..])
+}
+
+/// Whether `gh pr merge` output shows the merge didn't happen. A pipeline
+/// like `gh pr merge 4 | tail -3; gh pr view 4` succeeds even when the merge
+/// fails, so the error text (or a following `gh pr view`'s `OPEN` state) is
+/// the only sign.
+fn merge_failed(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    [
+        "graphql:",
+        "not mergeable",
+        "not allowed",
+        "failed",
+        "could not",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+        || output.split_whitespace().any(|word| word == "OPEN")
 }
 
 fn leading_number(s: &str) -> Option<u64> {
@@ -415,6 +436,54 @@ mod tests {
         ]
         .join("\n");
         assert!(parse_all(&text).is_empty());
+    }
+
+    #[test]
+    fn failed_merge_in_a_successful_pipeline_is_not_a_merge() {
+        // From a real session: the merge failed, but `| tail -3; gh pr view`
+        // made the whole command succeed. The squash retry is the merge.
+        let text = [
+            bash(
+                "t1",
+                "gh pr merge 4 --merge 2>&1 | tail -3; gh pr view 4 --json state,mergedAt -q '\"\\(.state) \\(.mergedAt)\"'",
+                "GraphQL: Merge commits are not allowed on this repository. (mergePullRequest)\nOPEN null",
+                false,
+                "2026-11-12T11:54:00Z",
+            ),
+            bash(
+                "t2",
+                "gh pr merge 4 --squash 2>&1 | tail -3; gh pr view 4 --json state,mergedAt -q '\"\\(.state) \\(.mergedAt)\"'",
+                "MERGED 2026-11-12T11:54:36Z",
+                false,
+                "2026-11-12T11:54:37Z",
+            ),
+        ]
+        .join("\n");
+        let events = parse_all(&text);
+        assert_eq!(names(&events), vec![("PR 4 merged", &Via::Tool)]);
+        assert_eq!(
+            events[0].timestamp.to_rfc3339(),
+            "2026-11-12T11:54:37+00:00"
+        );
+    }
+
+    #[test]
+    fn merge_error_messages_are_not_merges() {
+        for output in [
+            "X Pull request jayhogan/r#7 is not mergeable: the merge commit cannot be cleanly created.",
+            "failed to run git: fatal: not a git repository",
+            "could not determine current branch",
+            "OPEN",
+        ] {
+            let text = bash(
+                "t",
+                "gh pr merge 7 --squash | tail -3",
+                output,
+                false,
+                "2026-11-12T12:00:00Z",
+            );
+            assert!(parse_all(&text).is_empty(), "counted as merged: {output}");
+        }
     }
 
     #[test]
