@@ -8,8 +8,12 @@
 //!   (`/clear`, `/model`, ...) never get that confirmation.
 //! - The user types a plugin command that runs locally (`/plannotator-review`):
 //!   a `system` entry whose `commandRun` names the plugin.
+//!
+//! It also turns pull requests into events: a `Bash` call running
+//! `gh pr create` or `gh pr merge` whose result is not an error becomes
+//! "PR 1234 created" or "PR 1234 merged", timed by the result.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -20,6 +24,8 @@ pub enum Via {
     Slash,
 }
 
+/// One timeline entry: a skill run, or a PR event (`name` is then the
+/// display text, e.g. "PR 1234 merged").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillEvent {
     pub name: String,
@@ -36,6 +42,27 @@ pub struct Parser {
     pending: Option<(String, DateTime<Utc>)>,
     /// `tool_use` ids already emitted (resumed sessions can repeat history).
     seen_tool_ids: HashSet<String>,
+    /// Commands of `gh pr` Bash calls waiting for their result, by `tool_use` id.
+    pr_calls: HashMap<String, String>,
+    /// PR events already emitted, so a retried create shows once.
+    seen_prs: HashSet<(PrAction, u64)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum PrAction {
+    Created,
+    Merged,
+}
+
+impl PrAction {
+    fn of(command: &str) -> Option<(Self, Option<u64>)> {
+        if command.contains("gh pr create") {
+            Some((Self::Created, None))
+        } else {
+            let args = command.split("gh pr merge").nth(1)?;
+            Some((Self::Merged, merge_arg(args)))
+        }
+    }
 }
 
 impl Parser {
@@ -59,9 +86,14 @@ impl Parser {
         match entry.get("type").and_then(Value::as_str) {
             Some("assistant") => {
                 self.pending = None;
+                self.note_pr_calls(content);
                 self.skill_tool_uses(content, timestamp)
             }
             Some("user") => {
+                let prs = self.pr_results(content, timestamp);
+                if !prs.is_empty() {
+                    return prs;
+                }
                 let text = text_of(content);
                 if entry.get("isMeta").and_then(Value::as_bool) == Some(true) {
                     if text.trim_start().starts_with(SKILL_META_PREFIX)
@@ -99,6 +131,67 @@ impl Parser {
             }
             _ => vec![],
         }
+    }
+
+    fn note_pr_calls(&mut self, content: Option<&Value>) {
+        for block in content.and_then(Value::as_array).into_iter().flatten() {
+            if block.get("type").and_then(Value::as_str) != Some("tool_use")
+                || block.get("name").and_then(Value::as_str) != Some("Bash")
+            {
+                continue;
+            }
+            let (Some(id), Some(command)) = (
+                block.get("id").and_then(Value::as_str),
+                block.pointer("/input/command").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            if PrAction::of(command).is_some() {
+                self.pr_calls.insert(id.to_string(), command.to_string());
+            }
+        }
+    }
+
+    /// PR events for the successful results of pending `gh pr` calls.
+    fn pr_results(&mut self, content: Option<&Value>, ts: DateTime<Utc>) -> Vec<SkillEvent> {
+        let mut events = vec![];
+        for block in content.and_then(Value::as_array).into_iter().flatten() {
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                continue;
+            }
+            let Some(command) = block
+                .get("tool_use_id")
+                .and_then(Value::as_str)
+                .and_then(|id| self.pr_calls.remove(id))
+            else {
+                continue;
+            };
+            if block.get("is_error").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
+            let Some((action, from_command)) = PrAction::of(&command) else {
+                continue;
+            };
+            let output = text_of(block.get("content"));
+            let number = match action {
+                PrAction::Created => pull_number(&output),
+                PrAction::Merged => from_command.or_else(|| merged_number(&output)),
+            };
+            let Some(number) = number else { continue };
+            if !self.seen_prs.insert((action, number)) {
+                continue;
+            }
+            let verb = match action {
+                PrAction::Created => "created",
+                PrAction::Merged => "merged",
+            };
+            events.push(SkillEvent {
+                name: format!("PR {number} {verb}"),
+                timestamp: ts,
+                via: Via::Tool,
+            });
+        }
+        events
     }
 
     fn skill_tool_uses(&mut self, content: Option<&Value>, ts: DateTime<Utc>) -> Vec<SkillEvent> {
@@ -142,6 +235,33 @@ fn text_of(content: Option<&Value>) -> String {
             .join("\n"),
         _ => String::new(),
     }
+}
+
+/// The PR named by `gh pr merge`'s arguments: the first positional number or
+/// `/pull/N` URL before the end of that command.
+fn merge_arg(args: &str) -> Option<u64> {
+    let end = args.find(['|', ';', '&', '\n']).unwrap_or(args.len());
+    args[..end]
+        .split_whitespace()
+        .filter(|a| !a.starts_with('-'))
+        .find_map(|a| a.parse().ok().or_else(|| pull_number(a)))
+}
+
+/// `N` from the first `/pull/N` in `text` (skipping `git push`'s
+/// `/pull/new/<branch>` hint).
+fn pull_number(text: &str) -> Option<u64> {
+    text.split("/pull/").skip(1).find_map(leading_number)
+}
+
+/// `N` from "merged pull request owner/repo#N" in `gh pr merge` output.
+fn merged_number(text: &str) -> Option<u64> {
+    let rest = &text[text.find("pull request")?..];
+    leading_number(&rest[rest.find('#')? + 1..])
+}
+
+fn leading_number(s: &str) -> Option<u64> {
+    let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// `x` from `<command-name>/x</command-name>`, if present.
@@ -206,6 +326,129 @@ mod tests {
         assert_eq!(
             events[0].timestamp.to_rfc3339(),
             "2026-10-16T12:32:26.511+00:00"
+        );
+    }
+
+    /// An assistant `Bash` call followed by its result, as transcript lines.
+    fn bash(id: &str, command: &str, output: &str, is_error: bool, at: &str) -> String {
+        let call = serde_json::json!({
+            "type": "assistant", "timestamp": at,
+            "message": {"content": [{"type": "tool_use", "id": id, "name": "Bash",
+                "input": {"command": command}}]}
+        });
+        let result = serde_json::json!({
+            "type": "user", "timestamp": at,
+            "message": {"content": [{"type": "tool_result", "tool_use_id": id,
+                "is_error": is_error, "content": output}]}
+        });
+        format!("{call}\n{result}")
+    }
+
+    #[test]
+    fn pr_created_from_chained_push_and_create() {
+        let text = bash(
+            "toolu_c",
+            "git push -q -u origin ci-red-bug 2>&1 | tail -2\ngh pr create --base main --title \"Fix\" --body \"x\"",
+            "remote:      https://github.com/jayhogan/herdr-pr-pulse/pull/new/ci-red-bug\nremote: \nhttps://github.com/jayhogan/herdr-pr-pulse/pull/4",
+            false,
+            "2026-10-16T12:00:00Z",
+        );
+        let events = parse_all(&text);
+        assert_eq!(names(&events), vec![("PR 4 created", &Via::Tool)]);
+        assert_eq!(
+            events[0].timestamp.to_rfc3339(),
+            "2026-10-16T12:00:00+00:00"
+        );
+    }
+
+    #[test]
+    fn pr_merged_number_from_command() {
+        let text = bash(
+            "toolu_m",
+            "gh pr merge 2229 --squash --match-head-commit 8442ae5f 2>&1 | tail -3; gh pr view 2229 --json state",
+            "MERGED 2026-11-05T16:59:04Z 817b8231ce",
+            false,
+            "2026-11-05T17:00:00Z",
+        );
+        assert_eq!(
+            names(&parse_all(&text)),
+            vec![("PR 2229 merged", &Via::Tool)]
+        );
+    }
+
+    #[test]
+    fn pr_merged_number_from_output_when_command_has_none() {
+        let text = bash(
+            "toolu_m",
+            "gh pr merge --squash --delete-branch",
+            "✓ Squashed and merged pull request jayhogan/herdr-skill-timeline#3 (fix)\n✓ Deleted local branch",
+            false,
+            "2026-11-05T17:00:00Z",
+        );
+        assert_eq!(names(&parse_all(&text)), vec![("PR 3 merged", &Via::Tool)]);
+    }
+
+    #[test]
+    fn failed_or_unrelated_commands_are_not_pr_events() {
+        let text = [
+            bash(
+                "t1",
+                "gh pr merge 7 --squash",
+                "Permission denied",
+                true,
+                "2026-11-05T17:00:00Z",
+            ),
+            bash(
+                "t2",
+                "gh pr view 7",
+                "https://github.com/o/r/pull/7",
+                false,
+                "2026-11-05T17:01:00Z",
+            ),
+            bash(
+                "t3",
+                "gh pr create --fill",
+                "a pull request already exists",
+                false,
+                "2026-11-05T17:02:00Z",
+            ),
+        ]
+        .join("\n");
+        assert!(parse_all(&text).is_empty());
+    }
+
+    #[test]
+    fn same_pr_created_twice_shows_once() {
+        let text = [
+            bash(
+                "t1",
+                "gh pr create --fill",
+                "https://github.com/o/r/pull/1857",
+                false,
+                "2026-10-21T13:00:00Z",
+            ),
+            bash(
+                "t2",
+                "cd x && gh pr create --fill",
+                "https://github.com/o/r/pull/1857",
+                false,
+                "2026-10-21T13:01:00Z",
+            ),
+            bash(
+                "t3",
+                "gh pr merge 1857 --squash",
+                "",
+                false,
+                "2026-10-21T13:15:00Z",
+            ),
+        ]
+        .join("\n");
+        assert_eq!(
+            names(&parse_all(&text)),
+            vec![
+                ("PR 1857 created", &Via::Tool),
+                ("PR 1857 merged", &Via::Tool)
+            ]
         );
     }
 

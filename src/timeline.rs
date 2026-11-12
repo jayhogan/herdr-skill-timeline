@@ -26,7 +26,7 @@ pub enum Row {
 pub struct Group {
     pub pane_id: String,
     pub title: Option<String>,
-    /// Newest first. Empty means "(no skills yet)".
+    /// Newest first. Empty means "(no events yet)".
     pub rows: Vec<Row>,
 }
 
