@@ -36,9 +36,9 @@ fn header(view: &View, width: usize) -> Line<'static> {
         Status::Unreachable => "⚠ herdr unreachable",
     };
     let left = if view.title.is_empty() {
-        " Skill timeline".to_string()
+        " Event timeline".to_string()
     } else {
-        format!(" Skill timeline · {}", view.title)
+        format!(" Event timeline · {}", view.title)
     };
     Line::from(spread(&left, right, width)).style(Style::new().add_modifier(Modifier::BOLD))
 }
@@ -55,7 +55,7 @@ fn heading(group: &Group, width: usize) -> String {
 
 fn group_lines(group: &Group, now: DateTime<Utc>, width: usize) -> Vec<Line<'static>> {
     if group.rows.is_empty() {
-        return vec![Line::from(fit(&format!("{INDENT}(no skills yet)"), width))];
+        return vec![Line::from(fit(&format!("{INDENT}(no events yet)"), width))];
     }
     let mut newest_done = false;
     group
@@ -172,14 +172,14 @@ mod tests {
         assert_eq!(
             text(&buf),
             vec![
-                " Skill timeline · core-8920             ⟳ 2s",
+                " Event timeline · core-8920             ⟳ 2s",
                 "─ claude · store blockers ──────────────────",
                 "   simplify                        3 min ago",
                 "   test-driven-development        18 min ago",
                 "   ┄┄ new session ┄┄                        ",
                 "   superpowers:brainstorming        2 hr ago",
                 "─ claude ───────────────────────────────────",
-                "   (no skills yet)                          ",
+                "   (no events yet)                          ",
                 "                                            ",
             ]
         );
@@ -212,7 +212,7 @@ mod tests {
         let mut v = view();
         v.status = Status::Unreachable;
         let lines = text(&draw(&v, 44, 2, &mut 0));
-        assert_eq!(lines[0], " Skill timeline · core-… ⚠ herdr unreachable");
+        assert_eq!(lines[0], " Event timeline · core-… ⚠ herdr unreachable");
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(scroll, 4); // 8 lines of content, 4 visible
         assert_eq!(
             text(&buf)[3],
-            "   (no skills yet)                          "
+            "   (no events yet)                          "
         );
     }
 }

@@ -1,13 +1,16 @@
 # herdr-skill-timeline
 
 A [herdr](https://herdr.dev) pane that shows which Claude Code skills each
-Claude session in the current workspace has run, grouped by pane, newest
-first, with "10 min ago" labels. History for a pane survives `/clear`.
+Claude session in the current workspace has run, and the pull requests it
+created and merged, grouped by pane, newest first, with "10 min ago" labels.
+History for a pane survives `/clear`.
 
 ```
- Skill timeline · core-8920-store-blockers            ⟳ 2s
+ Event timeline · core-8920-store-blockers            ⟳ 2s
  ─ claude · store blockers ────────────────────────────────
+   PR 2229 merged                         1 min ago
    simplify                               3 min ago
+   PR 2229 created                       12 min ago
    test-driven-development               18 min ago
    ┄┄ new session ┄┄
    superpowers:brainstorming              2 hr ago
@@ -15,6 +18,12 @@ first, with "10 min ago" labels. History for a pane survives `/clear`.
 
 Both ways of running a skill are tracked: Claude calling the `Skill` tool, and
 you typing `/skill-name`. Built-in commands like `/clear` are ignored.
+
+Pull requests show as "PR 1234 created" and "PR 1234 merged" when Claude runs
+`gh pr create` or `gh pr merge` and the command succeeds. The number comes from
+the PR link `gh pr create` prints, and from `gh pr merge`'s argument (or its
+output). PRs created or merged outside the session, e.g. on github.com, don't
+show.
 
 ## Install
 
